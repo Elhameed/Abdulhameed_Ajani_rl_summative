@@ -16,14 +16,14 @@ env = Monitor(env, log_dir)  # Logs episode rewards, lengths, etc.
 
 # Callbacks
 checkpoint_callback = CheckpointCallback(
-    save_freq=1000,  # Save model every 1000 steps
+    save_freq=10000,  # Save model every 1000 steps
     save_path=model_dir,
     name_prefix="ppo_dental"
 )
 
 eval_callback = EvalCallback(
     env,
-    eval_freq=500,  # Evaluate every 500 steps
+    eval_freq=5000,  # Evaluate every 500 steps
     best_model_save_path=model_dir,
     deterministic=True,
     render=False
@@ -45,7 +45,7 @@ model = PPO(
 
 # Train the model
 model.learn(
-    total_timesteps=50_000,
+    total_timesteps=500_000,
     callback=[checkpoint_callback, eval_callback],
     tb_log_name="ppo_run"
 )
