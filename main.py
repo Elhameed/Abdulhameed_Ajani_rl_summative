@@ -1,81 +1,133 @@
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
-from stable_baselines3 import DQN
-from custom_env import DentalScannerEnv
-import time
+from OpenGL.GL import *
+from OpenGL.GLUT import *
+from OpenGL.GLU import *
+import imageio
+from stable_baselines3 import DQN, PPO
+from environment.custom_env import DentalScannerEnv
 
-class AgentVisualizer:
-    def __init__(self, model_path):
-        self.env = DentalScannerEnv()
-        self.model = DQN.load(model_path)
-        self.fig, self.ax = plt.subplots(figsize=(8, 8))
-        self.episode_history = []
-        
-        # Color map for states
-        self.cmap = {
-            0: [0.9, 0.9, 0.9],  # S1 - Light gray
-            1: [0, 1, 0],        # S2 - Green (goal)
-            2: [1, 0, 0],        # S3 - Red (hazard)
-            3: [1, 1, 0],        # S4 - Yellow
-            4: [0, 0, 1],        # S5 - Blue
-            -1: [0.5, 0, 0.5]    # Agent - Purple
-        }
-        
-    def render_grid(self):
-        """Convert state grid to RGB image"""
-        obs = self.env._get_obs()
-        grid_rgb = np.zeros((self.env.grid_size, self.env.grid_size, 3))
-        
-        for i in range(self.env.grid_size):
-            for j in range(self.env.grid_size):
-                state_val = obs[i, j]
-                grid_rgb[i, j] = self.cmap[state_val]
-        
-        return grid_rgb
+# Environment setup
+env = DentalScannerEnv()
+model = DQN.load("./models/ppo/ppo_final") 
 
-    def run_episode(self):
-        """Run one episode and store frames"""
-        obs, _ = self.env.reset()
-        done = False
-        frames = []
-        
-        while not done:
-            # Get agent action
-            action, _ = self.model.predict(obs, deterministic=True)
-            
-            # Step environment
-            obs, reward, done, _, _ = self.env.step(action)
-            
-            # Store frame
-            frames.append(self.render_grid())
-            
-            # Add slight delay for visualization
-            time.sleep(0.2)
-            
-        return frames
+# Colors and styles (same as before)
+STATE_COLORS = {
+    0: (0.95, 0.95, 0.95, 1.0),
+    1: (0.0, 0.8, 0.0, 1.0),
+    2: (0.9, 0.1, 0.1, 1.0),
+    3: (0.9, 0.9, 0.0, 1.0),
+    4: (0.3, 0.3, 1.0, 1.0)
+}
+AGENT_COLOR = (0.7, 0.0, 0.7, 1.0)
 
-    def animate(self, frames):
-        """Create animation from frames"""
-        im = self.ax.imshow(frames[0], interpolation='nearest')
-        
-        def update(frame):
-            im.set_array(frame)
-            return [im]
-        
-        ani = animation.FuncAnimation(
-            self.fig, update, frames=frames,
-            interval=200, blit=True
-        )
-        plt.title("Trained Agent Visualization")
-        plt.axis('off')
-        plt.show()
+def simulate_episode():
+    """Run one episode and record the agent's path"""
+    obs, _ = env.reset()
+    path = [tuple(np.argwhere(obs == -1)[0])]  # Start position
+    
+    for _ in range(100):  # Max steps
+        action, _ = model.predict(obs, deterministic=True)
+        obs, _, done, _, _ = env.step(action)
+        path.append(tuple(np.argwhere(obs == -1)[0]))
+        if done:
+            break
+    return path
 
-    def play(self):
-        """Main play function"""
-        frames = self.run_episode()
-        self.animate(frames)
+# Get actual agent path from trained model
+agent_path = simulate_episode()
+
+def draw_grid():
+    # Draw background
+    glColor4fv(BACKGROUND_COLOR)
+    glBegin(GL_QUADS)
+    glVertex2f(0, 0)
+    glVertex2f(5, 0)
+    glVertex2f(5, 5)
+    glVertex2f(0, 5)
+    glEnd()
+    
+    # Draw cells with colors
+    for i in range(5):
+        for j in range(5):
+            state = state_grid[i, j]
+            
+            # Fill cell with state color
+            glColor4fv(STATE_COLORS[state])
+            glBegin(GL_QUADS)
+            glVertex2f(j + 0.05, i + 0.05)
+            glVertex2f(j + 0.95, i + 0.05)
+            glVertex2f(j + 0.95, i + 0.95)
+            glVertex2f(j + 0.05, i + 0.95)
+            glEnd()
+            
+            # Draw cell border
+            glColor4fv(BORDER_COLOR)
+            glLineWidth(1.5)
+            glBegin(GL_LINE_LOOP)
+            glVertex2f(j + 0.05, i + 0.05)
+            glVertex2f(j + 0.95, i + 0.05)
+            glVertex2f(j + 0.95, i + 0.95)
+            glVertex2f(j + 0.05, i + 0.95)
+            glEnd()
+
+def draw_agent(x, y):
+    # Draw agent (rounded square)
+    glColor4fv(AGENT_COLOR)
+    glBegin(GL_QUADS)
+    glVertex2f(x + 0.25, y + 0.25)
+    glVertex2f(x + 0.75, y + 0.25)
+    glVertex2f(x + 0.75, y + 0.75)
+    glVertex2f(x + 0.25, y + 0.75)
+    glEnd()
+    
+    # Add eyes (simple dots)
+    glColor4f(1.0, 1.0, 1.0, 1.0)
+    glPointSize(4.0)
+    glBegin(GL_POINTS)
+    glVertex2f(x + 0.35, y + 0.6)
+    glVertex2f(x + 0.65, y + 0.6)
+    glEnd()
+
+def render_frame(frame_num):
+    glClear(GL_COLOR_BUFFER_BIT)
+    draw_grid()
+    
+    # Draw agent at current frame position
+    if frame_num < len(agent_path):
+        x, y = agent_path[frame_num]
+        draw_agent(x, y)
+    else:
+        # Final position
+        x, y = agent_path[-1]
+        draw_agent(x, y)
+    
+    # Add step counter
+    glColor3f(0, 0, 0)
+    glRasterPos2f(0.1, 5.2)
+    glutBitmapCharacter(GLUT_BITMAP_HELVETICA_18, ord(f'Step: {min(frame_num, len(agent_path)-1)}'))
+    
+    glutSwapBuffers()
+
+def visualize_episode():
+    glutInit()
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB)
+    glutInitWindowSize(600, 600)
+    glutCreateWindow(b"Trained Agent Visualization")
+    gluOrtho2D(0, 5, 0, 5.5)
+    
+    glutDisplayFunc(lambda: render_frame(0))
+    
+    # Animation variables
+    current_frame = [0]
+    
+    def update(value):
+        current_frame[0] += 1
+        if current_frame[0] <= len(agent_path) + 10:  # Extra frames at end
+            glutPostRedisplay()
+            glutTimerFunc(200, update, 0)  # 200ms per frame
+    
+    glutTimerFunc(200, update, 0)
+    glutMainLoop()
 
 if __name__ == "__main__":
-    visualizer = AgentVisualizer("./models/dqn/dqn_final")
-    visualizer.play()
+    visualize_episode()
